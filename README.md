@@ -1,0 +1,275 @@
+# PII Scrubber API
+
+A lightweight REST API for detecting and masking personally identifiable information (PII) in text using Microsoft Presidio. Designed for easy integration with N8N workflows and internal automation tools.
+
+## Features
+
+- **PII Detection**: Detects names, emails, phone numbers, addresses, credit cards, and more
+- **Dual Modes**:
+  - `detect`: Only identify PII entities without masking (returns original text with entity locations)
+  - `mask`: Apply masking to identified PII entities
+- **Multiple Masking Modes**: 
+  - `redact`: Replaces with masking characters (e.g., "John" → "████") - **Default**
+  - `replace`: Replaces PII with entity type tags (e.g., "John" → "<PERSON>")
+  - `hash`: Replaces with hash values for irreversible masking
+- **Basic Authentication**: Optional HTTP Basic Auth for secure deployments
+- **Configurable**: Specify which entities to detect or skip
+- **Fast**: Pre-warmed analyzers for low latency (<300ms for typical payloads)
+- **Privacy-First**: No data persistence, minimal logging
+
+## Installation
+
+1. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+2. Download Presidio models (first run):
+```bash
+python -c "from presidio_analyzer import AnalyzerEngine; AnalyzerEngine()"
+```
+
+## Running the API
+
+### Development Mode
+```bash
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Production Mode
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+### Using Python directly
+```bash
+python app.py
+```
+
+## API Endpoints
+
+### Health Check
+```
+GET /health
+```
+
+### Mask Text
+```
+POST /mask
+```
+
+#### Request Body
+```json
+{
+  "text": "John Doe lives at 123 Main St and email is john@example.com",
+  "mode": "mask",
+  "masking_mode": "replace",
+  "masking_char": "█",
+  "entities": ["PERSON", "EMAIL_ADDRESS", "LOCATION"],
+  "skip_entities": ["DATE_TIME"]
+}
+```
+
+#### Parameters
+- `text` (required): Text to process
+- `mode` (optional): "detect" | "mask" (default: "mask")
+  - `detect`: Only identify entities without masking
+  - `mask`: Apply masking to identified entities
+- `masking_mode` (optional): "replace" | "redact" | "hash" (default: "redact")
+- `masking_char` (optional): Character for redaction mode (default: "█")
+- `entities` (optional): List of entity types to detect (default: all)
+- `skip_entities` (optional): List of entity types to ignore
+
+#### Response
+```json
+{
+  "masked_text": "<PERSON> lives at <LOCATION> and email is <EMAIL_ADDRESS>",
+  "entities_found": [
+    {"entity_type": "PERSON", "start": 0, "end": 8, "score": 0.95},
+    {"entity_type": "LOCATION", "start": 18, "end": 28, "score": 0.91},
+    {"entity_type": "EMAIL_ADDRESS", "start": 42, "end": 59, "score": 0.99}
+  ],
+  "processing_time_ms": 52.11
+}
+```
+
+## Authentication
+
+The API supports optional HTTP Basic Authentication for secure deployments.
+
+### Configuration
+
+1. Copy the example environment file:
+```bash
+cp .env.example .env
+```
+
+2. Edit `.env` and set authentication parameters:
+```
+ENABLE_AUTH=true
+API_USERNAME=your_username
+API_PASSWORD=your_secure_password
+```
+
+3. Restart the server to apply changes
+
+### Using Authentication
+
+When authentication is enabled, include credentials in your requests:
+
+```python
+import requests
+from requests.auth import HTTPBasicAuth
+
+response = requests.post(
+    "http://your-server:8000/mask",
+    json={"text": "sample text", "mode": "detect"},
+    auth=HTTPBasicAuth("your_username", "your_secure_password")
+)
+```
+
+## N8N Integration
+
+### HTTP Request Node Configuration
+
+1. **Method**: POST
+2. **URL**: `http://your-server:8000/mask`
+3. **Authentication**: 
+   - Type: Basic Auth (if enabled)
+   - Username: Your API username
+   - Password: Your API password
+4. **Body Content Type**: JSON
+5. **Body**:
+```json
+{
+  "text": "{{ $json.message }}",
+  "mode": "mask",
+  "masking_mode": "replace"
+}
+```
+
+### Example N8N Workflow
+
+1. **Trigger**: Webhook or any data source
+2. **HTTP Request**: Call PII Scrubber API
+3. **Set**: Extract `masked_text` from response
+4. **Continue**: Use sanitized text in subsequent nodes
+
+### Using Function Node (Alternative)
+```javascript
+const response = await $http.request({
+  method: 'POST',
+  url: 'http://your-server:8000/mask',
+  body: {
+    text: items[0].json.text,
+    masking_mode: 'replace',
+    entities: ['PERSON', 'EMAIL_ADDRESS', 'PHONE_NUMBER']
+  },
+  returnFullResponse: true,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
+
+return [{
+  json: {
+    original: items[0].json.text,
+    masked: response.body.masked_text,
+    entities: response.body.entities_found
+  }
+}];
+```
+
+## Supported Entity Types
+
+- `PERSON`: Names
+- `EMAIL_ADDRESS`: Email addresses
+- `PHONE_NUMBER`: Phone numbers
+- `LOCATION`: Addresses and locations
+- `CREDIT_CARD`: Credit card numbers
+- `IBAN_CODE`: International bank account numbers
+- `IP_ADDRESS`: IP addresses
+- `DATE_TIME`: Dates and times
+- `NRP`: National identification numbers
+- `MEDICAL_LICENSE`: Medical license numbers
+- `URL`: Web URLs
+
+## Testing with cURL
+
+```bash
+# Basic test
+curl -X POST http://localhost:8000/mask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Contact John Doe at john@example.com or 555-0123",
+    "masking_mode": "replace"
+  }'
+
+# With specific entities
+curl -X POST http://localhost:8000/mask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "John Doe, SSN 123-45-6789, lives at 123 Main St",
+    "masking_mode": "redact",
+    "entities": ["PERSON", "US_SSN"]
+  }'
+
+# Hash mode for consistent masking
+curl -X POST http://localhost:8000/mask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Email john@example.com twice: john@example.com",
+    "masking_mode": "hash"
+  }'
+```
+
+## Configuration
+
+Environment variables can be set to override defaults:
+
+- `MASKING_MODE`: Default masking mode (replace/redact/hash)
+- `MASKING_CHAR`: Default character for redaction
+- `MAX_TEXT_SIZE`: Maximum text size in characters (default: 50000)
+- `ENABLE_LOGGING`: Enable request logging (default: false)
+- `HOST`: API host (default: 0.0.0.0)
+- `PORT`: API port (default: 8000)
+
+Example:
+```bash
+export MASKING_MODE=redact
+export MAX_TEXT_SIZE=100000
+uvicorn app:app
+```
+
+## Performance Tips
+
+1. **Pre-warm on startup**: The analyzer is initialized on startup for faster first requests
+2. **Keep payloads small**: Best performance with text under 5KB
+3. **Use specific entities**: Specifying entities reduces processing time
+4. **Run multiple workers**: Use `--workers` flag for production
+
+## Security Considerations
+
+- Run on internal network only
+- Use HTTPS in production (via reverse proxy)
+- No sensitive data is logged
+- All processing is in-memory
+- Consider API authentication for production use
+
+## Troubleshooting
+
+### Slow first request
+The first request loads NLP models. Subsequent requests will be faster.
+
+### Missing entities
+Ensure Presidio language models are downloaded:
+```bash
+python -m spacy download en_core_web_lg
+```
+
+### High memory usage
+Reduce worker count or implement request queuing for high-volume scenarios.
+
+## License
+
+Internal use only. Based on Microsoft Presidio (MIT License).

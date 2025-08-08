@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+presidio-analyzer
+presidio-anonymizer
+python-multipart
+pydantic
+pydantic-settings
