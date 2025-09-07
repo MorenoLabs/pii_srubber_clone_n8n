@@ -24,6 +24,8 @@ from langdetect import detect, detect_langs, LangDetectException
 # Configure minimal logging
 if settings.ENABLE_LOGGING:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    # Suppress Presidio recognizer warnings for unsupported languages
+    logging.getLogger('presidio-analyzer').setLevel(logging.ERROR)
     logger = logging.getLogger(__name__)
 else:
     logger = None
