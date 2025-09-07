@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     ENABLE_PREPROCESSING: bool = True  # Enable text preprocessing to improve PII detection
     
     # Basic Authentication (disabled by default)
-    ENABLE_AUTH: bool = False
+    ENABLE_AUTH: bool = True
     API_USERNAME: Optional[str] = None
     API_PASSWORD: Optional[str] = None
     
