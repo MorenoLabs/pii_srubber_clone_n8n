@@ -129,10 +129,17 @@ cp .env.example .env
 ```
 ENABLE_AUTH=true
 API_USERNAME=your_username
-API_PASSWORD=your_secure_password
+API_PASSWORD=your_secure_password_min_12_chars
+MIN_PASSWORD_LENGTH=12
 ```
 
 3. Restart the server to apply changes
+
+### Security Features
+- **Password strength validation**: Minimum password length enforcement (default: 12 characters)
+- **Failed attempt logging**: Authentication failures are logged for monitoring
+- **Constant-time comparison**: Secure credential validation using `secrets.compare_digest()`
+- **Configurable authentication**: Can be enabled/disabled via environment variables
 
 ### Using Authentication
 
@@ -344,11 +351,136 @@ uvicorn app:app
 
 ## Security Considerations
 
-- Run on internal network only
-- Use HTTPS in production (via reverse proxy)
-- No sensitive data is logged
-- All processing is in-memory
-- Consider API authentication for production use
+The PII Scrubber API implements comprehensive security measures for production deployment:
+
+### Built-in Security Features
+
+#### 1. **Authentication & Authorization**
+- **HTTP Basic Authentication** with configurable credentials
+- **Constant-time credential comparison** preventing timing attacks
+- **Password strength validation** (minimum 12 characters)
+- **Failed authentication logging** for monitoring
+- **Environment-based configuration** for secure credential management
+
+#### 2. **Rate Limiting & Brute Force Protection**
+- **Per-IP rate limiting** (default: 30 requests/minute)
+- **Configurable burst limits** to handle legitimate traffic spikes
+- **Automatic blocking** of excessive requests
+- **Rate limit headers** provided in responses
+
+#### 3. **CORS (Cross-Origin Resource Sharing) Protection**
+- **Restricted origins** - only specific domains allowed (configurable)
+- **Limited HTTP methods** - only GET and POST allowed
+- **Controlled headers** - only necessary headers permitted
+- **Credentials handling** - configurable credential allowance
+
+#### 4. **DoS (Denial of Service) Protection**
+- **Request size limits** (1MB default) to prevent memory exhaustion
+- **Processing timeouts** (30s default) to prevent resource starvation
+- **Entity count limits** (100 entities max) to prevent excessive processing
+- **Text size validation** (50KB default) for performance optimization
+
+#### 5. **Input Validation & Sanitization**
+- **Subprocess security** - whitelisted spaCy models only
+- **Regex validation** for model names preventing injection attacks
+- **Request size validation** at multiple levels
+- **Parameter validation** with strict type checking
+
+#### 6. **Secure Coding Practices**
+- **No sensitive data logging** - only metadata is recorded
+- **Memory-only processing** - no data persistence
+- **Constant-time operations** for security-sensitive comparisons
+- **Proper error handling** preventing information leakage
+- **Secure defaults** in all configuration options
+
+### Production Deployment Recommendations
+
+#### Infrastructure Security
+- **Internal network deployment** - avoid public internet exposure
+- **HTTPS termination** via reverse proxy (nginx/Apache)
+- **Web Application Firewall (WAF)** for additional protection
+- **Network segmentation** to isolate the API service
+- **Resource monitoring** to detect anomalous usage patterns
+
+#### Configuration Security
+```bash
+# Essential production settings in .env
+ENABLE_AUTH=true
+API_USERNAME=secure_admin_user
+API_PASSWORD=very_strong_password_min_12_chars
+CORS_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+RATE_LIMIT_PER_MINUTE=10  # Stricter limits for production
+MAX_PROCESSING_TIME=15    # Lower timeout for production
+ENABLE_LOGGING=true       # Enable security monitoring
+```
+
+#### Monitoring & Alerting
+- **Failed authentication attempts** - monitor logs for brute force attacks
+- **Rate limit violations** - track IPs hitting limits frequently
+- **Processing timeouts** - monitor for potential DoS attempts
+- **Resource usage** - CPU and memory consumption patterns
+- **Error rates** - unusual error patterns may indicate attacks
+
+#### Additional Security Layers
+Consider implementing these additional security measures:
+
+1. **API Gateway** (AWS API Gateway, Kong, etc.)
+   - Additional rate limiting and throttling
+   - API key management
+   - Request/response transformation
+   - Advanced analytics and monitoring
+
+2. **Container Security** (if using Docker)
+   - Non-root user execution
+   - Read-only filesystem
+   - Minimal base image
+   - Security scanning of images
+
+3. **Network Security**
+   - VPC/private subnet deployment
+   - Security groups with minimal access
+   - Load balancer with SSL termination
+   - DDoS protection services
+
+4. **Compliance & Auditing**
+   - Regular security assessments
+   - Dependency vulnerability scanning
+   - Access log retention and analysis
+   - Incident response procedures
+
+### Security Testing
+The API includes security testing capabilities:
+
+```bash
+# Test authentication security
+python3 test_auth.py
+
+# Test rate limiting (run multiple times quickly)
+for i in {1..50}; do curl -X POST http://localhost:8000/mask -H "Content-Type: application/json" -d '{"text":"test"}' & done
+
+# Test DoS protection with large payloads
+curl -X POST http://localhost:8000/mask -H "Content-Type: application/json" -d '{"text":"'$(head -c 100000 </dev/zero | tr '\0' 'A')'"}' 
+```
+
+### Security Incident Response
+In case of security incidents:
+
+1. **Immediate Response**
+   - Block suspicious IP addresses at firewall/WAF level
+   - Temporarily disable API if under severe attack
+   - Increase logging verbosity for investigation
+
+2. **Investigation**
+   - Review authentication logs for failed attempts
+   - Check rate limiting logs for patterns
+   - Monitor resource usage for anomalies
+   - Examine error logs for attack vectors
+
+3. **Recovery**
+   - Update credentials if compromised
+   - Implement additional rate limiting if needed
+   - Apply security patches promptly
+   - Review and update security configurations
 
 ## Troubleshooting
 

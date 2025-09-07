@@ -1,6 +1,10 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
@@ -13,6 +17,7 @@ import secrets
 import re
 import subprocess
 import sys
+import signal
 from typing import Optional, List, Dict, Any
 from langdetect import detect, detect_langs, LangDetectException
 
@@ -35,7 +40,24 @@ def is_spacy_model_installed(model_name: str) -> bool:
 
 # Helper: Install spaCy model
 def install_spacy_model(model_name: str) -> bool:
-    """Install a spaCy model using subprocess."""
+    """Install a spaCy model using subprocess with security validation."""
+    # Security: Only allow whitelisted model names
+    ALLOWED_MODELS = {
+        "en_core_web_lg", 
+        "de_core_news_lg",
+        "en_core_web_sm",
+        "de_core_news_sm"
+    }
+    
+    if model_name not in ALLOWED_MODELS:
+        print(f"✗ Security error: Model '{model_name}' not in allowed list")
+        return False
+    
+    # Additional security: validate model name format (alphanumeric and underscores only)
+    if not re.match(r'^[a-zA-Z0-9_]+$', model_name):
+        print(f"✗ Security error: Invalid model name format '{model_name}'")
+        return False
+    
     try:
         print(f"Installing spaCy model: {model_name}")
         result = subprocess.run([
@@ -75,10 +97,26 @@ def ensure_spacy_models():
     
     print("spaCy model check completed.")
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="Presidio PII Scrubber API",
     description="Lightweight API for PII detection and masking using Microsoft Presidio",
     version="1.0.0"
+)
+
+# Add rate limiter to app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,  # Specific origins only
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=["GET", "POST"],  # Only allow necessary HTTP methods
+    allow_headers=["Authorization", "Content-Type"],  # Only allow necessary headers
 )
 
 # Ensure required spaCy models are installed before initializing engines
@@ -137,6 +175,11 @@ def get_current_user(credentials: Optional[HTTPBasicCredentials] = Depends(secur
             detail="Authentication is enabled but credentials are not configured"
         )
     
+    # Validate password strength when auth is enabled
+    if len(settings.API_PASSWORD) < settings.MIN_PASSWORD_LENGTH:
+        if logger:
+            logger.warning("Weak password configured - consider using a stronger password")
+    
     is_correct_username = secrets.compare_digest(
         credentials.username.encode("utf8"),
         settings.API_USERNAME.encode("utf8")
@@ -147,11 +190,17 @@ def get_current_user(credentials: Optional[HTTPBasicCredentials] = Depends(secur
     )
     
     if not (is_correct_username and is_correct_password):
+        # Log failed authentication attempts
+        if logger:
+            logger.warning(f"Failed authentication attempt for user: {credentials.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Basic"},
         )
+    
+    if logger:
+        logger.info(f"Successful authentication for user: {credentials.username}")
     
     return credentials.username
 
@@ -172,6 +221,13 @@ class MaskResponse(BaseModel):
     entities_found: List[Dict[str, Any]]
     processing_time_ms: float
     detected_language: Optional[str] = None
+
+# Helper: Timeout context manager for DoS protection
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException("Processing timeout exceeded")
 
 # Helper: preprocess text to improve PII recognition
 def preprocess_text(text: str) -> str:
@@ -257,12 +313,15 @@ def build_anonymizer_config(masking_mode: str, masking_char: str, results):
     return operators
 
 @app.get("/health")
-async def health_check():
+@limiter.limit("60/minute")  # Allow frequent health checks
+async def health_check(request: Request):
     """Health check endpoint for monitoring."""
     return {"status": "healthy", "service": "pii-scrubber"}
 
 @app.post("/mask", response_model=MaskResponse)
+@limiter.limit(f"{settings.RATE_LIMIT_PER_MINUTE}/minute")  # Configurable rate limiting
 async def mask_text(
+    request: Request,
     req: MaskRequest,
     current_user: str = Depends(get_current_user)
 ):
@@ -273,6 +332,14 @@ async def mask_text(
     with metadata about detected entities.
     """
     start_time = time.time()
+    
+    # Enhanced DoS protection: Check request size
+    request_size = len(req.text.encode('utf-8')) if req.text else 0
+    if request_size > settings.MAX_REQUEST_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Request too large. Maximum size is {settings.MAX_REQUEST_SIZE} bytes"
+        )
     
     # Validate input
     if not req.text:
@@ -339,12 +406,29 @@ async def mask_text(
     analyzer = analyzers[detected_language]
     
     try:
-        # Analyze processed text for PII
-        analysis_results = analyzer.analyze(
-            text=processed_text,
-            entities=req.entities,
-            language=detected_language
-        )
+        # Set processing timeout as DoS protection
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(settings.MAX_PROCESSING_TIME)
+        
+        try:
+            # Analyze processed text for PII
+            analysis_results = analyzer.analyze(
+                text=processed_text,
+                entities=req.entities,
+                language=detected_language
+            )
+        finally:
+            # Always clear the alarm
+            signal.alarm(0)
+        
+        # DoS protection: Check for excessive entities
+        if len(analysis_results) > settings.MAX_ENTITIES_PER_REQUEST:
+            if logger:
+                logger.warning(f"Too many entities detected: {len(analysis_results)} > {settings.MAX_ENTITIES_PER_REQUEST}")
+            raise HTTPException(
+                status_code=413,
+                detail=f"Too many PII entities detected. Maximum allowed: {settings.MAX_ENTITIES_PER_REQUEST}"
+            )
         
         # Filter out skip_entities if provided
         if req.skip_entities:
@@ -423,7 +507,14 @@ async def mask_text(
             )
         
         return response
-        
+    
+    except TimeoutException:
+        if logger:
+            logger.warning(f"Processing timeout exceeded: {settings.MAX_PROCESSING_TIME}s")
+        raise HTTPException(
+            status_code=408, 
+            detail=f"Processing timeout exceeded ({settings.MAX_PROCESSING_TIME}s)"
+        )
     except Exception as e:
         if logger:
             logger.error(f"Processing error: {str(e)}")
@@ -444,6 +535,5 @@ if __name__ == "__main__":
     uvicorn.run(
         "app:app",
         host=settings.HOST,
-        port=settings.PORT,
-        reload=True
+        port=settings.PORT
     )

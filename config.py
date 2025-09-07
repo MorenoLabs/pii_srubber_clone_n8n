@@ -21,5 +21,21 @@ class Settings(BaseSettings):
     ENABLE_AUTH: bool = False
     API_USERNAME: Optional[str] = None
     API_PASSWORD: Optional[str] = None
+    
+    # Security settings
+    MIN_PASSWORD_LENGTH: int = 12  # Minimum password length when auth is enabled
+    
+    # Rate limiting settings
+    RATE_LIMIT_PER_MINUTE: int = 30  # Max requests per minute per IP
+    RATE_LIMIT_BURST: int = 10  # Max burst requests before rate limiting kicks in
+    
+    # CORS settings
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]  # Allowed origins
+    CORS_ALLOW_CREDENTIALS: bool = False
+    
+    # DoS Protection settings
+    MAX_PROCESSING_TIME: int = 30  # Maximum processing time in seconds
+    MAX_ENTITIES_PER_REQUEST: int = 100  # Maximum number of entities to process
+    MAX_REQUEST_SIZE: int = 1_000_000  # 1MB max request size in bytes
 
 settings = Settings()
