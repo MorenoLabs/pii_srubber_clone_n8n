@@ -29,14 +29,16 @@ A lightweight REST API for detecting and masking personally identifiable informa
 pip install -r requirements.txt
 ```
 
-2. Download Presidio models for supported languages (first run):
-```bash
-# English model
-python -m spacy download en_core_web_lg
-
-# German model
-python -m spacy download de_core_news_lg
-```
+2. **Language models are automatically installed** on first startup
+   - The API will automatically download required spaCy models:
+     - `en_core_web_lg` (English)  
+     - `de_core_news_lg` (German)
+   - This happens automatically when the server starts for the first time
+   - Manual installation (optional): 
+     ```bash
+     python -m spacy download en_core_web_lg
+     python -m spacy download de_core_news_lg
+     ```
 
 ## Running the API
 

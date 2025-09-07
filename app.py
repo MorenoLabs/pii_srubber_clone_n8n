@@ -11,6 +11,8 @@ import time
 import logging
 import secrets
 import re
+import subprocess
+import sys
 from typing import Optional, List, Dict, Any
 from langdetect import detect, detect_langs, LangDetectException
 
@@ -21,11 +23,66 @@ if settings.ENABLE_LOGGING:
 else:
     logger = None
 
+# Helper: Check if spaCy model is installed
+def is_spacy_model_installed(model_name: str) -> bool:
+    """Check if a spaCy model is installed."""
+    try:
+        import spacy
+        spacy.load(model_name)
+        return True
+    except OSError:
+        return False
+
+# Helper: Install spaCy model
+def install_spacy_model(model_name: str) -> bool:
+    """Install a spaCy model using subprocess."""
+    try:
+        print(f"Installing spaCy model: {model_name}")
+        result = subprocess.run([
+            sys.executable, "-m", "spacy", "download", model_name
+        ], capture_output=True, text=True, timeout=300)  # 5 minute timeout
+        
+        if result.returncode == 0:
+            print(f"✓ Successfully installed {model_name}")
+            return True
+        else:
+            print(f"✗ Failed to install {model_name}: {result.stderr}")
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"✗ Timeout installing {model_name}")
+        return False
+    except Exception as e:
+        print(f"✗ Error installing {model_name}: {str(e)}")
+        return False
+
+# Helper: Ensure required spaCy models are installed
+def ensure_spacy_models():
+    """Ensure all required spaCy models are installed."""
+    required_models = {
+        "en": "en_core_web_lg",
+        "de": "de_core_news_lg"
+    }
+    
+    print("Checking required spaCy models...")
+    
+    for lang, model_name in required_models.items():
+        if not is_spacy_model_installed(model_name):
+            print(f"Model {model_name} not found. Installing...")
+            if not install_spacy_model(model_name):
+                print(f"WARNING: Failed to install {model_name}. {lang} language support may not work properly.")
+        else:
+            print(f"✓ Model {model_name} is already installed")
+    
+    print("spaCy model check completed.")
+
 app = FastAPI(
     title="Presidio PII Scrubber API",
     description="Lightweight API for PII detection and masking using Microsoft Presidio",
     version="1.0.0"
 )
+
+# Ensure required spaCy models are installed before initializing engines
+ensure_spacy_models()
 
 # Initialize Presidio Engines for supported languages (warm start)
 # For German, we need to configure with the proper nlp model
