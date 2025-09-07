@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from typing import Optional, List
 
 class Settings(BaseSettings):
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
     MASKING_MODE: str = "redact"  # replace | redact | hash
     MASKING_CHAR: str = "█"
     MAX_TEXT_SIZE: int = 50_000  # 50 KB
