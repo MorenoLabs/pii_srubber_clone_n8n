@@ -5,3 +5,4 @@ presidio-anonymizer
 python-multipart
 pydantic
 pydantic-settings
+langdetect

@@ -5,6 +5,11 @@ A lightweight REST API for detecting and masking personally identifiable informa
 ## Features
 
 - **PII Detection**: Detects names, emails, phone numbers, addresses, credit cards, and more
+- **Multi-Language Support**: 
+  - English (en) - Full support
+  - German (de) - Full support
+  - Automatic language detection or explicit language specification
+- **Smart Text Preprocessing**: Automatically cleans escape sequences (`\n`, `\t`) and normalizes whitespace to improve PII recognition accuracy
 - **Dual Modes**:
   - `detect`: Only identify PII entities without masking (returns original text with entity locations)
   - `mask`: Apply masking to identified PII entities
@@ -24,9 +29,13 @@ A lightweight REST API for detecting and masking personally identifiable informa
 pip install -r requirements.txt
 ```
 
-2. Download Presidio models (first run):
+2. Download Presidio models for supported languages (first run):
 ```bash
-python -c "from presidio_analyzer import AnalyzerEngine; AnalyzerEngine()"
+# English model
+python -m spacy download en_core_web_lg
+
+# German model
+python -m spacy download de_core_news_lg
 ```
 
 ## Running the API
@@ -66,7 +75,8 @@ POST /mask
   "masking_mode": "replace",
   "masking_char": "█",
   "entities": ["PERSON", "EMAIL_ADDRESS", "LOCATION"],
-  "skip_entities": ["DATE_TIME"]
+  "skip_entities": ["DATE_TIME"],
+  "language": "en"
 }
 ```
 
@@ -79,6 +89,14 @@ POST /mask
 - `masking_char` (optional): Character for redaction mode (default: "█")
 - `entities` (optional): List of entity types to detect (default: all)
 - `skip_entities` (optional): List of entity types to ignore
+- `language` (optional): "en" | "de" | null (default: auto-detect)
+  - `en`: English
+  - `de`: German
+  - `null`: Auto-detect language
+- `enable_preprocessing` (optional): true | false | null (default: server setting)
+  - `true`: Enable text preprocessing (clean escape sequences, normalize whitespace)
+  - `false`: Disable preprocessing (use raw text)
+  - `null`: Use server default setting
 
 #### Response
 ```json
@@ -89,7 +107,8 @@ POST /mask
     {"entity_type": "LOCATION", "start": 18, "end": 28, "score": 0.91},
     {"entity_type": "EMAIL_ADDRESS", "start": 42, "end": 59, "score": 0.99}
   ],
-  "processing_time_ms": 52.11
+  "processing_time_ms": 52.11,
+  "detected_language": "en"
 }
 ```
 
@@ -194,10 +213,47 @@ return [{
 - `MEDICAL_LICENSE`: Medical license numbers
 - `URL`: Web URLs
 
+## Language Support
+
+### Automatic Language Detection
+The API automatically detects the language of input text and applies the appropriate analyzer:
+
+```bash
+# English text - automatically detected
+curl -X POST http://localhost:8000/mask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Contact John Doe at john@example.com",
+    "masking_mode": "replace"
+  }'
+
+# German text - automatically detected
+curl -X POST http://localhost:8000/mask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Kontaktieren Sie Hans Müller unter hans@beispiel.de",
+    "masking_mode": "replace"
+  }'
+```
+
+### Explicit Language Specification
+You can also explicitly specify the language:
+
+```bash
+# Explicitly specify German
+curl -X POST http://localhost:8000/mask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Frau Schmidt wohnt in Berlin, Hauptstraße 123",
+    "language": "de",
+    "masking_mode": "replace"
+  }'
+```
+
 ## Testing with cURL
 
 ```bash
-# Basic test
+# Basic test (English)
 curl -X POST http://localhost:8000/mask \
   -H "Content-Type: application/json" \
   -d '{
@@ -221,6 +277,15 @@ curl -X POST http://localhost:8000/mask \
     "text": "Email john@example.com twice: john@example.com",
     "masking_mode": "hash"
   }'
+
+# German text example
+curl -X POST http://localhost:8000/mask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Herr Müller, geboren am 15.01.1990, E-Mail: mueller@firma.de",
+    "language": "de",
+    "masking_mode": "replace"
+  }'
 ```
 
 ## Configuration
@@ -233,6 +298,10 @@ Environment variables can be set to override defaults:
 - `ENABLE_LOGGING`: Enable request logging (default: false)
 - `HOST`: API host (default: 0.0.0.0)
 - `PORT`: API port (default: 8000)
+- `SUPPORTED_LANGUAGES`: Comma-separated list of supported languages (default: en,de)
+- `DEFAULT_LANGUAGE`: Default language when detection fails (default: en)
+- `AUTO_DETECT_LANGUAGE`: Enable automatic language detection (default: true)
+- `ENABLE_PREPROCESSING`: Enable text preprocessing to improve PII detection (default: true)
 
 Example:
 ```bash
@@ -262,9 +331,13 @@ uvicorn app:app
 The first request loads NLP models. Subsequent requests will be faster.
 
 ### Missing entities
-Ensure Presidio language models are downloaded:
+Ensure Presidio language models are downloaded for all supported languages:
 ```bash
+# English model
 python -m spacy download en_core_web_lg
+
+# German model
+python -m spacy download de_core_news_lg
 ```
 
 ### High memory usage
