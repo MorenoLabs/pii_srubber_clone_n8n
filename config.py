@@ -1,13 +1,11 @@
 from pydantic_settings import BaseSettings
 from typing import Optional, List
+import os
 
 class Settings(BaseSettings):
-    model_config = {
-        "env_file": ".env", 
-        "env_file_encoding": "utf-8",
-        "env_nested_delimiter": "__",
-        "case_sensitive": False
-    }
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
     MASKING_MODE: str = "redact"  # replace | redact | hash
     MASKING_CHAR: str = "█"
     MAX_TEXT_SIZE: int = 50_000  # 50 KB
