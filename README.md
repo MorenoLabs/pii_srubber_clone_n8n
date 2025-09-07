@@ -9,7 +9,7 @@ A lightweight REST API for detecting and masking personally identifiable informa
   - English (en) - Full support
   - German (de) - Full support
   - Automatic language detection or explicit language specification
-- **Smart Text Preprocessing**: Automatically cleans escape sequences (`\n`, `\t`) and normalizes whitespace to improve PII recognition accuracy
+- **Smart Text Preprocessing**: Automatically cleans escape sequences (`\n`, `\t`) and normalizes whitespace to improve PII recognition accuracy - especially useful for JSON-encoded text or text with formatting issues
 - **Dual Modes**:
   - `detect`: Only identify PII entities without masking (returns original text with entity locations)
   - `mask`: Apply masking to identified PII entities
@@ -250,7 +250,30 @@ curl -X POST http://localhost:8000/mask \
   }'
 ```
 
-## Testing with cURL
+## Testing
+
+### Running Test Suite
+
+The API includes several test scripts to validate functionality:
+
+```bash
+# Start the API server first
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+
+# Run core API functionality tests
+python test_api.py
+
+# Test authentication features
+python test_auth.py
+
+# Test different masking modes
+python test_modes.py
+
+# Test German language support
+python test_german.py
+```
+
+### Testing with cURL
 
 ```bash
 # Basic test (English)
