@@ -2,7 +2,12 @@ from pydantic_settings import BaseSettings
 from typing import Optional, List
 
 class Settings(BaseSettings):
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": ".env", 
+        "env_file_encoding": "utf-8",
+        "env_nested_delimiter": "__",
+        "case_sensitive": False
+    }
     MASKING_MODE: str = "redact"  # replace | redact | hash
     MASKING_CHAR: str = "█"
     MAX_TEXT_SIZE: int = 50_000  # 50 KB
@@ -38,5 +43,6 @@ class Settings(BaseSettings):
     MAX_PROCESSING_TIME: int = 30  # Maximum processing time in seconds
     MAX_ENTITIES_PER_REQUEST: int = 100  # Maximum number of entities to process
     MAX_REQUEST_SIZE: int = 1_000_000  # 1MB max request size in bytes
+    
 
 settings = Settings()
